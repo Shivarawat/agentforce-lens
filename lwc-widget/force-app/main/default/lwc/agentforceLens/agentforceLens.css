@@ -1,0 +1,89 @@
+.lens-container {
+  font-family: 'Salesforce Sans', Arial, sans-serif;
+  background: #16213e;
+  border: 1px solid #1a3a5c;
+  border-radius: 12px;
+  padding: 16px;
+  color: #e2e8f0;
+}
+
+.lens-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.lens-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #60a5fa;
+}
+
+.lens-subtitle {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.lens-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.lens-stat {
+  background: #0f172a;
+  border: 1px solid #1e3a5f;
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+
+.lens-stat--alert {
+  border-color: #7f1d1d;
+  background: #1c0a0a;
+}
+
+.lens-stat-value {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.lens-stat--alert .lens-stat-value {
+  color: #fca5a5;
+}
+
+.lens-stat-label {
+  display: block;
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.lens-footer {
+  margin-top: 14px;
+  text-align: right;
+}
+
+.lens-footer a {
+  font-size: 11px;
+  color: #60a5fa;
+  text-decoration: none;
+}
+
+.lens-footer a:hover {
+  text-decoration: underline;
+}
+
+.lens-loading, .lens-error {
+  font-size: 12px;
+  color: #64748b;
+  text-align: center;
+  padding: 16px 0;
+}
+
+.lens-error { color: #fca5a5; }

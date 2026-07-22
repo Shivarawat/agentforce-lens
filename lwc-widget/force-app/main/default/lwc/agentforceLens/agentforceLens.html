@@ -1,0 +1,43 @@
+<template>
+  <div class="lens-container">
+    <div class="lens-header">
+      <span class="lens-title">Agentforce Lens</span>
+      <span class="lens-subtitle">Last 7 days</span>
+    </div>
+
+    <template lwc:if={isLoading}>
+      <div class="lens-loading">Loading…</div>
+    </template>
+
+    <template lwc:if={hasError}>
+      <div class="lens-error">Could not load metrics. Check backend connection.</div>
+    </template>
+
+    <template lwc:if={overview}>
+      <div class="lens-grid">
+        <div class="lens-stat">
+          <span class="lens-stat-value">{overview.total_conversations}</span>
+          <span class="lens-stat-label">Conversations</span>
+        </div>
+        <div class="lens-stat">
+          <span class="lens-stat-value">{overview.resolved_count}</span>
+          <span class="lens-stat-label">Resolved</span>
+        </div>
+        <div class="lens-stat lens-stat--alert">
+          <span class="lens-stat-value">{overview.escalated_count}</span>
+          <span class="lens-stat-label">Escalated</span>
+        </div>
+        <div class="lens-stat lens-stat--alert">
+          <span class="lens-stat-value">{escalationRateDisplay}</span>
+          <span class="lens-stat-label">Escalation Rate</span>
+        </div>
+      </div>
+
+      <div class="lens-footer">
+        <a href={dashboardUrl} target="_blank" rel="noopener noreferrer">
+          Open Full Dashboard ↗
+        </a>
+      </div>
+    </template>
+  </div>
+</template>
