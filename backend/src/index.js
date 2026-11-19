@@ -26,8 +26,9 @@ app.get('/health', (_, res) => res.json({ status: 'ok' }))
 async function start() {
   await initDb()
   await connectRedis()
-  await startAllStreams()
+  // Started before the streams, so one slow or unreachable org can't delay everyone's data
   startFlushWorker()   // moves buffered events from Redis into Postgres every 5 seconds
+  await startAllStreams()
 
   app.listen(PORT, () => console.log(`[server] running on http://localhost:${PORT}`))
 }

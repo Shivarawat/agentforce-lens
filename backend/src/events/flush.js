@@ -8,10 +8,14 @@ const UPSERT_CONVERSATION = `
   INSERT INTO conversations (org_id, session_id, bot_id, channel, status, turn_count, escalated)
   VALUES ($1, $2, $3, $4, $5, $6, $7)
   ON CONFLICT (session_id) DO UPDATE
-    SET status     = EXCLUDED.status,
+    -- A re-delivered or out-of-order event (lower turn count) must not overwrite newer state
+    SET status     = CASE WHEN EXCLUDED.turn_count >= conversations.turn_count
+                          THEN EXCLUDED.status ELSE conversations.status END,
         turn_count = GREATEST(conversations.turn_count, EXCLUDED.turn_count),
         escalated  = conversations.escalated OR EXCLUDED.escalated,
-        ended_at   = CASE WHEN EXCLUDED.status != 'active' THEN NOW() ELSE conversations.ended_at END`
+        ended_at   = CASE WHEN EXCLUDED.turn_count >= conversations.turn_count AND EXCLUDED.status != 'active'
+                          THEN COALESCE(conversations.ended_at, NOW())
+                          ELSE conversations.ended_at END`
 
 // Unique (session_id, turn_index) makes re-delivered events a no-op
 const INSERT_TURN = `
