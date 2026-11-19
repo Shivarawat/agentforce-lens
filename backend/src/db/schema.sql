@@ -61,4 +61,6 @@ CREATE INDEX IF NOT EXISTS idx_conversations_org_id ON conversations(org_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations(status);
 CREATE INDEX IF NOT EXISTS idx_conversations_started_at ON conversations(started_at);
 CREATE INDEX IF NOT EXISTS idx_turns_session_id ON conversation_turns(session_id);
+-- One row per turn: lets re-delivered events be ignored with ON CONFLICT DO NOTHING
+CREATE UNIQUE INDEX IF NOT EXISTS uq_turns_session_turn ON conversation_turns(session_id, turn_index);
 CREATE INDEX IF NOT EXISTS idx_snapshots_org_hour ON analytics_snapshots(org_id, snapshot_hour);

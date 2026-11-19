@@ -4,6 +4,7 @@ import cors from 'cors'
 import { initDb } from './db/init.js'
 import { connectRedis } from './services/redis.js'
 import { startAllStreams } from './events/cometd.js'
+import { startFlushWorker } from './events/flush.js'
 import authRoutes         from './routes/auth.js'
 import analyticsRoutes    from './routes/analytics.js'
 import conversationRoutes from './routes/conversations.js'
@@ -26,6 +27,7 @@ async function start() {
   await initDb()
   await connectRedis()
   await startAllStreams()
+  startFlushWorker()   // moves buffered events from Redis into Postgres every 5 seconds
 
   app.listen(PORT, () => console.log(`[server] running on http://localhost:${PORT}`))
 }

@@ -1,57 +1,89 @@
-import { drainEvents } from '../services/redis.js'
-import pool from '../db/pool.js'
+import * as redis from '../services/redis.js'
+import realPool from '../db/pool.js'
+import { normalizeEvent } from './normalize.js'
 
-// Flush buffered Redis events to PostgreSQL every 5 seconds
-export function startFlushWorker(orgIds) {
-  setInterval(async () => {
-    for (const orgId of orgIds) {
-      try {
-        const events = await drainEvents(orgId)
-        if (!events.length) continue
+export const BATCH_SIZE = 500
 
-        for (const e of events) {
-          // Upsert conversation record
-          await pool.query(
-            `INSERT INTO conversations (org_id, session_id, bot_id, channel, status, turn_count, escalated)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
-             ON CONFLICT (session_id) DO UPDATE
-               SET status     = EXCLUDED.status,
-                   turn_count = EXCLUDED.turn_count,
-                   escalated  = EXCLUDED.escalated,
-                   ended_at   = CASE WHEN EXCLUDED.status != 'active' THEN NOW() ELSE conversations.ended_at END`,
-            [
-              orgId,
-              e.SessionId,
-              e.BotId,
-              e.ChannelType,
-              e.Status?.toLowerCase() ?? 'active',
-              e.TurnCount ?? 0,
-              e.IsEscalated ?? false,
-            ]
-          )
+const UPSERT_CONVERSATION = `
+  INSERT INTO conversations (org_id, session_id, bot_id, channel, status, turn_count, escalated)
+  VALUES ($1, $2, $3, $4, $5, $6, $7)
+  ON CONFLICT (session_id) DO UPDATE
+    SET status     = EXCLUDED.status,
+        turn_count = GREATEST(conversations.turn_count, EXCLUDED.turn_count),
+        escalated  = conversations.escalated OR EXCLUDED.escalated,
+        ended_at   = CASE WHEN EXCLUDED.status != 'active' THEN NOW() ELSE conversations.ended_at END`
 
-          // Insert the individual turn if present
-          if (e.TurnSequenceNumber != null) {
-            await pool.query(
-              `INSERT INTO conversation_turns
-                 (session_id, org_id, turn_index, user_message, bot_response,
-                  topic_name, action_name, action_success, error_message)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-               ON CONFLICT DO NOTHING`,
-              [
-                e.SessionId, orgId, e.TurnSequenceNumber,
-                e.UserMessage, e.BotResponse,
-                e.TopicName, e.ActionName,
-                e.IsActionSuccessful, e.ErrorMessage,
-              ]
-            )
-          }
-        }
+// Unique (session_id, turn_index) makes re-delivered events a no-op
+const INSERT_TURN = `
+  INSERT INTO conversation_turns
+    (session_id, org_id, turn_index, user_message, bot_response,
+     topic_name, action_name, action_success, error_message)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+  ON CONFLICT (session_id, turn_index) DO NOTHING`
 
-        console.log(`[flush] wrote ${events.length} events for org ${orgId}`)
-      } catch (err) {
-        console.error(`[flush] error for org ${orgId}:`, err.message)
+// Write one batch of an org's buffered events to Postgres in a single transaction.
+// Events are acknowledged (removed from Redis) only after COMMIT; on failure they stay
+// buffered and are retried on the next tick. Returns how many events were processed.
+export async function flushOrg(orgId, { store = redis, pool = realPool, batchSize = BATCH_SIZE } = {}) {
+  const raw = await store.peekEvents(orgId, batchSize)
+  if (!raw.length) return { written: 0, skipped: 0 }
+
+  const events = raw.map((payload) => normalizeEvent(payload, orgId))
+  const valid = events.filter(Boolean)
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    for (const e of valid) {
+      await client.query(UPSERT_CONVERSATION, [
+        e.orgId, e.sessionId, e.botId, e.channel, e.status, e.turnCount, e.escalated,
+      ])
+      if (e.turnIndex != null) {
+        await client.query(INSERT_TURN, [
+          e.sessionId, e.orgId, e.turnIndex, e.userMessage, e.botResponse,
+          e.topicName, e.actionName, e.actionSuccess, e.errorMessage,
+        ])
       }
     }
-  }, 5000)
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw err
+  } finally {
+    client.release()
+  }
+
+  // Invalid events (no session id) can never be stored, so they are dropped with the batch
+  await store.ackEvents(orgId, raw.length)
+  return { written: valid.length, skipped: raw.length - valid.length }
+}
+
+// Flush every connected org every `intervalMs`. Orgs are re-read on each tick, so orgs
+// connected after startup are included, and ticks never overlap.
+export function startFlushWorker({ intervalMs = 5000, pool = realPool } = {}) {
+  let running = false
+
+  const timer = setInterval(async () => {
+    if (running) return
+    running = true
+    try {
+      const { rows } = await pool.query('SELECT org_id FROM orgs')
+      for (const { org_id: orgId } of rows) {
+        try {
+          const { written, skipped } = await flushOrg(orgId, { pool })
+          if (written || skipped) {
+            console.log(`[flush] org ${orgId}: wrote ${written}, skipped ${skipped} invalid`)
+          }
+        } catch (err) {
+          console.error(`[flush] org ${orgId} failed, events kept for retry:`, err.message)
+        }
+      }
+    } catch (err) {
+      console.error('[flush] could not list orgs:', err.message)
+    } finally {
+      running = false
+    }
+  }, intervalMs)
+
+  return () => clearInterval(timer)
 }
