@@ -1,5 +1,14 @@
 import jsforce from 'jsforce'
 import pool from '../db/pool.js'
+import { isSalesforceId } from '../utils/salesforceId.js'
+
+function oauthConfig() {
+  return {
+    clientId:     process.env.SF_CLIENT_ID,
+    clientSecret: process.env.SF_CLIENT_SECRET,
+    redirectUri:  process.env.SF_CALLBACK_URL,
+  }
+}
 
 // Build an authenticated jsforce connection for a given org
 export async function getConnection(orgId) {
@@ -14,11 +23,7 @@ export async function getConnection(orgId) {
     instanceUrl:  org.instance_url,
     accessToken:  org.access_token,
     refreshToken: org.refresh_token,
-    oauth2: {
-      clientId:     process.env.SF_CLIENT_ID,
-      clientSecret: process.env.SF_CLIENT_SECRET,
-      redirectUri:  process.env.SF_CALLBACK_URL,
-    },
+    oauth2:       oauthConfig(),
   })
 
   // Persist refreshed tokens automatically
@@ -30,6 +35,19 @@ export async function getConnection(orgId) {
   })
 
   return conn
+}
+
+// Exchange the stored refresh token for a new access token and save it
+export async function refreshAccessToken(org) {
+  const oauth2 = new jsforce.OAuth2(oauthConfig())
+  const res = await oauth2.refreshToken(org.refresh_token)
+  const instanceUrl = res.instance_url ?? org.instance_url
+
+  await pool.query(
+    'UPDATE orgs SET access_token = $1, instance_url = $2, updated_at = NOW() WHERE org_id = $3',
+    [res.access_token, instanceUrl, org.org_id]
+  )
+  return { ...org, access_token: res.access_token, instance_url: instanceUrl }
 }
 
 // Fetch all bots/agents in the org
@@ -45,18 +63,22 @@ export async function listAgents(orgId) {
 
 // Fetch recent conversation sessions from Salesforce
 export async function fetchConversations(orgId, limit = 100) {
+  // limit goes into the SOQL string, so force it to a small positive integer
+  const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 2000)
   const conn = await getConnection(orgId)
   const result = await conn.query(
     `SELECT Id, BotId, StartTime, EndTime, Status, ChannelType, TurnCount
      FROM ConversationSession
      ORDER BY StartTime DESC
-     LIMIT ${limit}`
+     LIMIT ${safeLimit}`
   )
   return result.records
 }
 
 // Fetch turns for a specific conversation session
 export async function fetchConversationTurns(orgId, sessionId) {
+  // sessionId goes into the SOQL string: only accept a real Salesforce id (prevents SOQL injection)
+  if (!isSalesforceId(sessionId)) throw new Error('Invalid session id')
   const conn = await getConnection(orgId)
   const result = await conn.query(
     `SELECT Id, TurnSequenceNumber, UserMessage, BotResponse,

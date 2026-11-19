@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import jsforce from 'jsforce'
 import pool from '../db/pool.js'
-import { startStreaming } from '../events/cometd.js'
+import { startStreaming, stopStreaming } from '../events/cometd.js'
 
 const router = Router()
 
@@ -62,6 +62,7 @@ router.get('/orgs', async (req, res) => {
 
 // Disconnect an org
 router.delete('/orgs/:orgId', async (req, res) => {
+  stopStreaming(req.params.orgId)
   await pool.query('DELETE FROM orgs WHERE org_id = $1', [req.params.orgId])
   res.json({ success: true })
 })
