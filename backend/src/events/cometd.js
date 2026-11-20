@@ -42,6 +42,9 @@ export async function startStreaming(org, { retried = false } = {}) {
   stopStreaming(org.org_id)
 
   const cometd = new CometD()
+  // Salesforce's CometD endpoint only supports long-polling. In Node the client tries
+  // WebSocket first and never falls back, so the handshake fails unless we remove it.
+  cometd.unregisterTransport('websocket')
   cometd.configure({
     url:            `${org.instance_url}/cometd/59.0`,
     requestHeaders: { Authorization: `Bearer ${org.access_token}` },
